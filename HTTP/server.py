@@ -22,8 +22,11 @@ class MyFlightServer(fl.FlightServerBase):
         pass  # Implement flight data retrieval here
 
     def do_put(self, context, descriptor, reader, writer):
-        print("Something is sent")
-        pass  # Implement flight data upload here
+        # Example: Read the stream and collect data into a Pandas DataFrame
+        print("Primljeno")
+        table = reader.read_all()
+        pandas_df = table.to_pandas()
+        print("Primljeno")
 
     def list_actions(self, context):
         pass  # Implement listing available actions here
