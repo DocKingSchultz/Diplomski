@@ -11,7 +11,7 @@ port = 3000
 client = fl.FlightClient(f"grpc://{host}:{port}")
 
 # Read data from the file 'data-table.txt'
-data_file_path = 'data_csv_1000.csv'
+data_file_path = 'resources/data_csv_1000.csv'
 with open(data_file_path, 'r') as file:
     lines = file.readlines()
 

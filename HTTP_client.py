@@ -13,7 +13,7 @@ def read_data_from_file(file_path):
 data_to_send = {
     'tableName': 'example_table',
     # You can replace the content with your actual large data table
-    'tableData': read_data_from_file('data_csv_100.csv')  # Read data from a file (optional)
+    'tableData': read_data_from_file('resources/data_csv_100.csv')  # Read data from a file (optional)
 }
 
 # Benchmarking: Start the timer
