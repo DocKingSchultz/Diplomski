@@ -1,0 +1,31 @@
+Client                                                 Server
+
+[Send Message]
+[op:sendingBatches, finished:false,         do_put        --> numberOfTableRows:1000, numberOfBatches:1000]
+
+                                         [Receive Message]
+                                              [communcation]
+
+[Send Batches Loop]
+[op:sendingBatches, finished:false,                 --> batch:data]
+                                                      [Receive Batch]
+
+[Send Batches Loop]
+[op:sendingBatches, finished:false,                 --> batch:data]
+                                                      [Receive Batch]
+
+[Send Batches Loop]
+[op:sendingBatches, finished:false,                 --> batch:data]
+                                                      [Receive Batch]
+
+... continue sending batches until all are sent ...
+
+[Send Message]
+[op:sendingBatches, finished:true:,                 --> numberOfTableRows:1000, numberOfBatches:1000]
+
+                                                      [Receive Message]
+                                                        [Data Received]
+
+[ReceiveMessage]                            do_get        <-- [Send Message]
+                                                        [op:sendingBatches]
+                                                        [status:Success]
