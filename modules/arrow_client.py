@@ -8,16 +8,18 @@ import configparser
 class FlightDataSender:
     def __init__(self, properties_file):
         self.properties_file = properties_file
-        self.host, self.port = self.read_properties()
+        self.host, self.port, self.data_file_path, self.chunk_size = self.read_properties()
         self.client = fl.FlightClient(f"grpc://{self.host}:{self.port}")
-        self.table_initializer = ParseAndCreateTable(properties_file)
+        self.table_initializer = ParseAndCreateTable(self.chunk_size, self.data_file_path)
 
     def read_properties(self):
         config = configparser.ConfigParser()
         config.read(self.properties_file)
         host = config['SETTINGS']['host']
-        port = int(config['SETTINGS']['port'])
-        return host, port
+        port = int(config['SETTINGS']['arrow_port'])
+        data_file_path = config['SETTINGS']['data_file_path']
+        chunk_size = int(config['SETTINGS']['chunk_size'])
+        return host, port, data_file_path, chunk_size
 
     def startCommunication(self):
         try:
@@ -100,6 +102,6 @@ class FlightDataSender:
 # Example usage:
 properties_file = '../config.properties'
 sender = FlightDataSender(properties_file)
-sender.table_initializer.initialize_table()
+sender.table_initializer.initialize_arrow_table()
 sender.startCommunication()
 sender.send_batches()

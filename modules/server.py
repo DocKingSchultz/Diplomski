@@ -4,6 +4,10 @@ import pandas as pd
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import threading
+import logging
+
+# Disable logging
+logging.basicConfig(level=logging.CRITICAL)
 
 class MyFlightServer(flight.FlightServerBase):
     def __init__(self, *args, **kwargs):
@@ -53,6 +57,7 @@ class MyFlightServer(flight.FlightServerBase):
                 batch = record_batch_reader.read_next_batch()
                 self.data['tables'].append(batch)
                 num_batches_read += 1
+                print("Data chunk from arrow client received number of batch : ", num_batches_read)
 
             if len(self.data['tables']) == total_batches:
                 self.validate_batches(message)
@@ -84,44 +89,94 @@ class MyFlightServer(flight.FlightServerBase):
         writer.begin(schema)
         writer.write_table(message_table)
         writer.close()
-        print("Data transaction finished.")
+        print("Data transaction with arrow client finished.")
         print("---------------------------------------------------------------------")
 
 class HTTPRequestHandler(BaseHTTPRequestHandler):
-    data_table = []
+    data = {"numberOfTableRowsInBatch": None, "numberOfBatches": None, "tables": []}
 
     def do_POST(self):
-        content_length = int(self.headers['Content-Length'])
-        raw_bytes = self.rfile.read(content_length)
-        self.data_table.append(raw_bytes)
+        try:
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            json_data = json.loads(post_data.decode('utf-8'))
+            
+            operation_handlers = {
+                'sendingBatches': self.handle_sending_batches,
+                'startDataTransaction': self.handle_start_data_transaction,
+                'transactionFinished': self.handle_transaction_finished
+            }
+            
+            operation = json_data.get('op')
+            handler = operation_handlers.get(operation)
+            if handler:
+                handler(json_data)
+            else:
+                self.send_response(400)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': 'Invalid operation'}).encode())
+                
+        except Exception as e:
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'error': str(e)}).encode())
+
+    def handle_start_data_transaction(self, json_data):
+        self.data['numberOfTableRowsInBatch'] = json_data['numberOfTableRowsInBatch']
+        self.data['numberOfBatches'] = json_data['numberOfBatches']
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
         self.end_headers()
-        response_data = {'status': 'success', 'message': 'Data received successfully'}
-        self.wfile.write(json.dumps(response_data).encode())
+        self.wfile.write(json.dumps({'status': 'Transaction initialized'}).encode())
+        print("Transaction with http client initialized.")
+        pass
 
-    def do_GET(self):
-        if self.path == '/get_table':
-            concatenated_data = b"".join(self.data_table)
-            self.send_response(200)
-            self.send_header('Content-type', 'text/csv')
+    def handle_transaction_finished(self, json_data):
+        # Handle transactionFinished operation
+        pass
+    
+    def handle_sending_batches(self, json_data):
+        try:
+            if 'batch' in json_data:
+                self.data['tables'].append(json_data['batch'])
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'status': 'Success'}).encode())
+                #print("Batch received successfully.")
+                if len(self.data['tables']) == self.data['numberOfBatches']:
+                    # All batches received, reset data
+                    self.reset_data()
+                    print("All batches received. Data reset.")
+            else:
+                self.send_response(400)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': 'Invalid payload'}).encode())
+        except Exception as e:
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json')
             self.end_headers()
-            self.wfile.write(concatenated_data)
-        else:
-            self.send_response(404)
-            self.end_headers()
-            self.wfile.write(b"404 - Not Found")
+            self.wfile.write(json.dumps({'error': str(e)}).encode())
 
-def start_flight_server():
-    server = MyFlightServer(('0.0.0.0', 3000))
-    print("Starting Flight server on port 3000")
-    server.serve()
+
+    def reset_data(self):
+        self.data['numberOfTableRowsInBatch'] = None
+        self.data['numberOfBatches'] = None
+        self.data['tables'] = []
 
 def start_http_server():
     server_address = ('', 8080)
     httpd = HTTPServer(server_address, HTTPRequestHandler)
     print("Starting HTTP server on port 8080")
     httpd.serve_forever()
+
+def start_flight_server():
+    server = MyFlightServer(('0.0.0.0', 3000))
+    print("Starting Flight server on port 3000")
+    server.serve()
 
 if __name__ == "__main__":
     flight_server_thread = threading.Thread(target=start_flight_server)
