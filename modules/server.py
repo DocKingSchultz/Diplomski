@@ -5,9 +5,16 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import threading
 import logging
+import os
+import configparser
+import csv
+from datetime import datetime
 
 # Disable logging
 logging.basicConfig(level=logging.CRITICAL)
+
+# Propetries file with 
+properties_file = "../config.properties"
 
 class MyFlightServer(flight.FlightServerBase):
     def __init__(self, *args, **kwargs):
@@ -124,6 +131,7 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({'error': str(e)}).encode())
 
     def handle_start_data_transaction(self, json_data):
+        self.reset_data()
         self.data['numberOfTableRowsInBatch'] = json_data['numberOfTableRowsInBatch']
         self.data['numberOfBatches'] = json_data['numberOfBatches']
         self.send_response(200)
@@ -145,9 +153,18 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
                 self.wfile.write(json.dumps({'status': 'Success'}).encode())
-                #print("Batch received successfully.")
+                print("Batch received successfully.")
+                print(len(self.data['tables']), self.data['numberOfBatches'])
+                #print(json_data['batch'])
                 if len(self.data['tables']) == self.data['numberOfBatches']:
                     # All batches received, reset data
+                    config = configparser.ConfigParser()
+                    config.read(properties_file)
+                    logs_active = bool(config['VARIABLES']['logs_active'])
+                    logs_dir = config['VARIABLES']['logs_dir']
+                    print(logs_active, logs_dir)
+                    if(logs_active) :
+                        self.save_table_to_log(logs_dir)
                     self.reset_data()
                     print("All batches received. Data reset.")
             else:
@@ -156,6 +173,7 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({'error': 'Invalid payload'}).encode())
         except Exception as e:
+            print(e)
             self.send_response(500)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
@@ -167,18 +185,42 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
         self.data['numberOfBatches'] = None
         self.data['tables'] = []
 
-def start_http_server():
-    server_address = ('', 8080)
+    def save_table_to_log(self, log_dir):
+        print("Logging, needs rework")
+        # timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        # log_file = os.path.join(log_dir, f"table_{timestamp}.csv")
+        
+        # # Create the directory if it doesn't exist
+        # os.makedirs(log_dir, exist_ok=True)
+        
+        # with open(log_file, "w", newline='') as f:
+        #     writer = csv.writer(f)
+        #     df = pd.DataFrame(self.data['tables'])
+        #     # Write the DataFrame to CSV
+        #     df.to_csv(log_file, index=False)
+        # print("Log file created:", log_file)
+
+
+    
+
+def start_http_server(host, port):
+    server_address = (host, port)
     httpd = HTTPServer(server_address, HTTPRequestHandler)
-    print("Starting HTTP server on port 8080")
+    print("Starting HTTP server on port : ", port)
     httpd.serve_forever()
 
-def start_flight_server():
-    server = MyFlightServer(('0.0.0.0', 3000))
-    print("Starting Flight server on port 3000")
+def start_flight_server(host, port):
+    server = MyFlightServer((host, port))
+    print("Starting Flight server on port : ", port)
     server.serve()
 
 if __name__ == "__main__":
-    flight_server_thread = threading.Thread(target=start_flight_server)
+    config = configparser.ConfigParser()
+    config.read(properties_file)
+    host = config['SETTINGS']['host']
+    arrow_port = int(config['SETTINGS']['arrow_port'])
+    http_port = int(config['SETTINGS']['http_port'])
+
+    flight_server_thread = threading.Thread(target=start_flight_server, args=(host, arrow_port))
     flight_server_thread.start()
-    start_http_server()
+    start_http_server(host, http_port)

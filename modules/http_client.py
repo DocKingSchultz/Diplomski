@@ -15,7 +15,7 @@ class HttpDataSender:
         config.read(self.properties_file)
         host = config['SETTINGS']['host']
         port = int(config['SETTINGS']['http_port'])
-        data_file_path = config['SETTINGS']['data_file_path']
+        data_file_path = config['VARIABLES']['data_file_path']
         chunk_size = int(config['SETTINGS']['chunk_size'])
         return host, port, data_file_path, chunk_size
 
@@ -56,7 +56,7 @@ class HttpDataSender:
                 response = requests.post(url, json=payload, headers=headers)
                 response_data = response.json()
                 if response.status_code == 200 and response_data.get('status') == 'Success':
-                    #print(f"Batch {i+1}/{len(self.table_initializer.data_table_chunked)} sent successfully.")
+                    print(f"Batch {i+1}/{len(self.table_initializer.data_table_chunked)} sent successfully.")
                     pass
                 else:
                     print("Error: Server response indicates failure for batch", i+1)
@@ -73,7 +73,6 @@ class HttpDataSender:
         except Exception as e:
             print("Error sending HTTP request:", e)
 
-# Example usage:
 properties_file = '../config.properties'
 sender = HttpDataSender(properties_file)
 sender.table_initializer.initialize_json_table()

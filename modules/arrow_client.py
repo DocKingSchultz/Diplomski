@@ -17,7 +17,7 @@ class FlightDataSender:
         config.read(self.properties_file)
         host = config['SETTINGS']['host']
         port = int(config['SETTINGS']['arrow_port'])
-        data_file_path = config['SETTINGS']['data_file_path']
+        data_file_path = config['VARIABLES']['data_file_path']
         chunk_size = int(config['SETTINGS']['chunk_size'])
         return host, port, data_file_path, chunk_size
 
