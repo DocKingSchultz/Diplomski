@@ -102,6 +102,9 @@ class MyFlightServer(flight.FlightServerBase):
 class HTTPRequestHandler(BaseHTTPRequestHandler):
     data = {"numberOfTableRowsInBatch": None, "numberOfBatches": None, "tables": []}
 
+    def log_message(self, format, *args):
+        return  # Overrides logging and does nothing
+
     def do_POST(self):
         try:
             content_length = int(self.headers['Content-Length'])
