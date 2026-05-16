@@ -144,21 +144,48 @@ Without a warm-up, the first measured run would include one-time setup latency n
 
 ### Measured runs
 
-After the warm-up, `N_RUNS = 5` consecutive runs are performed for each configuration. Each run re-establishes the Flight client connection (Arrow) or reuses the HTTP session (HTTP), but data is **not re-read from disk** — the parsed and chunked dataset stays in memory across all runs.
+After the warm-up, `N_RUNS = 10` consecutive runs are performed for each configuration. Each run re-establishes the Flight client connection (Arrow) or reuses the HTTP session (HTTP), but data is **not re-read from disk** — the parsed and chunked dataset stays in memory across all runs.
+
+10 runs were chosen over a smaller number because isolated OS scheduling spikes (context switches, garbage collection pauses) can inflate individual measurements significantly. With 5 runs, a single such spike shifts the average by 20%. With 10 runs, its weight is halved, and the trimmed mean eliminates it entirely.
+
+### Server restart between experiments
+
+The server is restarted between Experiment 1 and Experiment 2. Without a restart, the server accumulates received data in memory across all runs of Experiment 1. For large datasets (1M rows, ~84 MB), this causes Python's garbage collector to interfere with Experiment 2 timing — producing results that are not comparable to a fresh server state. The restart ensures each experiment starts from a clean memory baseline.
+
+### Representative value — trimmed mean
+
+The raw results file contains every individual run. The summary file derives one representative value per configuration using the **trimmed mean**: the minimum and maximum measurement are dropped, and the remaining 8 values are averaged.
+
+This approach is standard in performance benchmarking. It eliminates the effect of transient outliers — such as an OS scheduler preempting the process mid-transfer or a garbage collection pause — without discarding as many data points as a more aggressive trim would. The result is a stable central estimate that is robust to the kind of one-off spikes observed during testing (e.g. a single HTTP batch run taking 6× longer than the others with identical payload).
+
+The **coefficient of variation** (`cv_pct = std / mean × 100`) is also reported per configuration. Values below 10% indicate stable measurements. Values above 20% indicate that the result should be interpreted with caution and the raw runs should be inspected.
 
 ### Metrics recorded
 
-| Column           |                       Description                       |
-|------------------|---------------------------------------------------------|
-| `protocol`       | `arrow` or `http`                                       |
-| `dataset`        | source CSV filename                                     | 
-| `num_rows`       | total rows in the dataset                               |
-| `chunk_size`     | rows per batch                                          |
-| `num_batches`    | total batches sent (`ceil(num_rows / chunk_size)`)      |
-| `file_size_mb`   | size of the source CSV file in MB                       |
-| `run`            | run index (1 to N_RUNS)                                 |
-| `elapsed_ms`     | total transfer time in milliseconds                     |
-| `throughput_mbs` | effective throughput in MB/s (`file_size_mb / elapsed_s`) 
+**Raw file** (`benchmark_TIMESTAMP.csv`) — one row per individual run:
+
+| Column | Description |
+|---|---|
+| `protocol` | `arrow` or `http` |
+| `dataset` | source CSV filename |
+| `num_rows` | total rows in the dataset |
+| `chunk_size` | rows per batch |
+| `num_batches` | total batches sent (`ceil(num_rows / chunk_size)`) |
+| `file_size_mb` | size of the source CSV file in MB |
+| `run` | run index (1 to N_RUNS) |
+| `elapsed_ms` | total transfer time in milliseconds |
+| `throughput_mbs` | effective throughput in MB/s (`file_size_mb / elapsed_s`) |
+
+**Summary file** (`summary_TIMESTAMP.csv`) — one row per configuration:
+
+| Column | Description |
+|---|---|
+| `mean_ms` | arithmetic mean of all runs |
+| `median_ms` | median of all runs |
+| `trimmed_mean_ms` | mean after dropping min and max — **primary metric** |
+| `std_ms` | standard deviation |
+| `cv_pct` | coefficient of variation in % (std / mean × 100) |
+| `throughput_trimmed_mbs` | throughput derived from trimmed mean |
 
 ### What is and is not included in elapsed time
 
