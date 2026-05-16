@@ -154,6 +154,12 @@ def write_results(all_records, out_file):
         writer.writerows(all_records)
     print(f"\nResults saved to: {out_file}")
 
+def restart_server(proc):
+    proc.kill()
+    proc.wait()
+    time.sleep(1)
+    return start_server()
+
 def main():
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     out_file = RESULTS_DIR / f'benchmark_{ts}.csv'
@@ -170,7 +176,11 @@ def main():
             for protocol in ['arrow', 'http']:
                 records = benchmark(protocol, filename, num_rows, EXP1_CHUNK_SIZE)
                 all_records.extend(records)
-                time.sleep(0.5)  # brief pause between runs
+                time.sleep(0.5)
+
+        # Fresh server for Experiment 2 — eliminates accumulated state from Exp 1
+        print("\nRestarting server before Experiment 2...")
+        server_proc = restart_server(server_proc)
 
         # --- Experiment 2 ---
         print(f"\n{'='*60}")

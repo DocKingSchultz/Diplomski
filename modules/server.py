@@ -104,10 +104,19 @@ class MyFlightServer(flight.FlightServerBase):
         print("---------------------------------------------------------------------")
 
 class HTTPRequestHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
     data = {"numberOfTableRowsInBatch": None, "numberOfBatches": None, "tables": []}
 
     def log_message(self, format, *args):
         return  # Overrides logging and does nothing
+
+    def send_json(self, code, body: dict):
+        payload = json.dumps(body).encode()
+        self.send_response(code)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
 
     def do_POST(self):
         try:
@@ -126,66 +135,40 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
             if handler:
                 handler(json_data)
             else:
-                self.send_response(400)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({'error': 'Invalid operation'}).encode())
-                
+                self.send_json(400, {'error': 'Invalid operation'})
+
         except Exception as e:
-            self.send_response(500)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({'error': str(e)}).encode())
+            self.send_json(500, {'error': str(e)})
 
     def handle_start_data_transaction(self, json_data):
         self.reset_data()
         self.data['numberOfTableRowsInBatch'] = json_data['numberOfTableRowsInBatch']
         self.data['numberOfBatches'] = json_data['numberOfBatches']
-        self.send_response(200)
-        self.send_header('Content-type', 'application/json')
-        self.end_headers()
-        self.wfile.write(json.dumps({'status': 'Transaction initialized'}).encode())
-        print("Transaction with http client initialized.")
-        pass
+        self.send_json(200, {'status': 'Transaction initialized'})
 
     def handle_transaction_finished(self, json_data):
         received = len(self.data['tables'])
         expected = self.data['numberOfBatches']
         if received == expected:
             self.reset_data()
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({'status': 'Success', 'numberOfBatchesReceived': received}).encode())
+            self.send_json(200, {'status': 'Success', 'numberOfBatchesReceived': received})
             print("HTTP transaction finished successfully.")
             print("---------------------------------------------------------------------")
         else:
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({'status': 'Error', 'received': received, 'expected': expected}).encode())
+            self.send_json(200, {'status': 'Error', 'received': received, 'expected': expected})
 
     def handle_sending_batches(self, json_data):
         try:
             if 'batch' in json_data:
                 self.data['tables'].append(json_data['batch'])
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({'status': 'Success'}).encode())
+                self.send_json(200, {'status': 'Success'})
                 if len(self.data['tables']) == self.data['numberOfBatches']:
                     print("All batches received. Waiting for transactionFinished signal.")
             else:
-                self.send_response(400)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({'error': 'Invalid payload'}).encode())
+                self.send_json(400, {'error': 'Invalid payload'})
         except Exception as e:
             print(e)
-            self.send_response(500)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({'error': str(e)}).encode())
+            self.send_json(500, {'error': str(e)})
 
 
     def reset_data(self):
