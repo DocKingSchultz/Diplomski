@@ -4,11 +4,14 @@ import configparser
 from data_parser import ParseAndCreateTable  # Assuming you have this module
 
 class HttpDataSender:
-    def __init__(self, properties_file):
+    def __init__(self, properties_file, chunk_size=None, data_file_path=None):
         self.properties_file = properties_file
-        self.host, self.port, self.data_file_path, self.chunk_size = self.read_properties()
+        self.host, self.port, cfg_data_file, cfg_chunk_size = self.read_properties()
+        self.chunk_size = chunk_size if chunk_size is not None else cfg_chunk_size
+        self.data_file_path = data_file_path if data_file_path is not None else cfg_data_file
         self.base_url = f"http://{self.host}:{self.port}"
         self.table_initializer = ParseAndCreateTable(self.chunk_size, self.data_file_path)
+        self.session = requests.Session()
 
     def read_properties(self):
         config = configparser.ConfigParser()
@@ -28,22 +31,24 @@ class HttpDataSender:
                     "numberOfTableRowsInBatch": len(self.table_initializer.data_table_chunked[0]),
                     "numberOfBatches": len(self.table_initializer.data_table_chunked),
             }
-            response = requests.post(url, json=payload, headers=headers)
+            response = self.session.post(url, json=payload, headers=headers)
             response_data = response.json()
             if response.status_code == 200 and response_data.get('status') == 'Transaction initialized':
-                print(f"Transaction initialzed properly.")
-                self.send_batches()
+                return self.send_batches()
             else:
                 print("Error: Starting with data transaction failed")
                 print("Response:", response_data)
+                return None
         except Exception as e:
             print("Error sending HTTP request:", e)
+            return None
+
     def send_batches(self):
         try:
-            url = f"{self.base_url}/sendBatches"
+            url_batches = f"{self.base_url}/sendBatches"
+            url_finished = f"{self.base_url}/transactionFinished"
             headers = {'Content-Type': 'application/json'}
 
-            # Record start time
             start_time = time.time()
 
             for i, batch in enumerate(self.table_initializer.data_table_chunked):
@@ -53,27 +58,32 @@ class HttpDataSender:
                     "numberOfBatches": len(self.table_initializer.data_table_chunked),
                     "batch": batch
                 }
-                response = requests.post(url, json=payload, headers=headers)
+                response = self.session.post(url_batches, json=payload, headers=headers)
                 response_data = response.json()
-                if response.status_code == 200 and response_data.get('status') == 'Success':
-                    print(f"Batch {i+1}/{len(self.table_initializer.data_table_chunked)} sent successfully.")
-                    pass
-                else:
-                    print("Error: Server response indicates failure for batch", i+1)
+                if not (response.status_code == 200 and response_data.get('status') == 'Success'):
+                    print("Error: Server response indicates failure for batch", i + 1)
                     print("Response:", response_data)
-                    return
+                    return None
 
-            # Record end time
+            # Wait for server to confirm all batches received and processed
+            response = self.session.post(url_finished, json={"op": "transactionFinished"}, headers=headers)
+            response_data = response.json()
+
             end_time = time.time()
+            elapsed_time = (end_time - start_time) * 1000
 
-            # Calculate elapsed time
-            elapsed_time = (end_time - start_time) * 1000  # Convert to milliseconds
-            print('Elapsed time:', f'{elapsed_time:.2f}', 'milliseconds')
+            if response.status_code == 200 and response_data.get('status') == 'Success':
+                return elapsed_time
+            else:
+                print("Error: Final transaction confirmation failed")
+                return None
 
         except Exception as e:
             print("Error sending HTTP request:", e)
+            return None
 
-properties_file = '../config.properties'
-sender = HttpDataSender(properties_file)
-sender.table_initializer.initialize_json_table()
-sender.start_data_transaction()
+if __name__ == '__main__':
+    properties_file = '../config.properties'
+    sender = HttpDataSender(properties_file)
+    sender.table_initializer.initialize_json_table()
+    sender.start_data_transaction()

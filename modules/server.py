@@ -64,7 +64,6 @@ class MyFlightServer(flight.FlightServerBase):
                 batch = record_batch_reader.read_next_batch()
                 self.data['tables'].append(batch)
                 num_batches_read += 1
-                print("Data chunk from arrow client received number of batch : ", num_batches_read)
 
             if len(self.data['tables']) == total_batches:
                 self.validate_batches(message)
@@ -81,12 +80,17 @@ class MyFlightServer(flight.FlightServerBase):
 
     def validate_batches(self, message):
         num_rows_per_batch = self.data.get('numberOfTableRowsInBatch')
-        for batch in self.data['tables']:
+        batches = self.data['tables']
+        # All batches except the last must have exactly num_rows_per_batch rows
+        for batch in batches[:-1]:
             if len(batch) != num_rows_per_batch:
                 raise Exception("Incorrect number of rows in one or more batches")
+        # Last batch may have fewer rows (remainder)
+        if len(batches[-1]) > num_rows_per_batch:
+            raise Exception("Last batch exceeds expected row count")
 
-        message['numberOfBatchesRecevied'] = len(self.data['tables'])
-        message['numberOfRowsInBatches'] = len(self.data['tables'][0])
+        message['numberOfBatchesRecevied'] = len(batches)
+        message['numberOfRowsInBatches'] = len(batches[0])
         message['status'] = "Success"
 
     def send_message_data(self, message, writer):
@@ -145,9 +149,22 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
         pass
 
     def handle_transaction_finished(self, json_data):
-        # Handle transactionFinished operation
-        pass
-    
+        received = len(self.data['tables'])
+        expected = self.data['numberOfBatches']
+        if received == expected:
+            self.reset_data()
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'status': 'Success', 'numberOfBatchesReceived': received}).encode())
+            print("HTTP transaction finished successfully.")
+            print("---------------------------------------------------------------------")
+        else:
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'status': 'Error', 'received': received, 'expected': expected}).encode())
+
     def handle_sending_batches(self, json_data):
         try:
             if 'batch' in json_data:
@@ -156,20 +173,8 @@ class HTTPRequestHandler(BaseHTTPRequestHandler):
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
                 self.wfile.write(json.dumps({'status': 'Success'}).encode())
-                print("Batch received successfully.")
-                print(len(self.data['tables']), self.data['numberOfBatches'])
-                #print(json_data['batch'])
                 if len(self.data['tables']) == self.data['numberOfBatches']:
-                    # All batches received, reset data
-                    config = configparser.ConfigParser()
-                    config.read(properties_file)
-                    logs_active = bool(config['VARIABLES']['logs_active'])
-                    logs_dir = config['VARIABLES']['logs_dir']
-                    print(logs_active, logs_dir)
-                    if(logs_active) :
-                        self.save_table_to_log(logs_dir)
-                    self.reset_data()
-                    print("All batches received. Data reset.")
+                    print("All batches received. Waiting for transactionFinished signal.")
             else:
                 self.send_response(400)
                 self.send_header('Content-type', 'application/json')

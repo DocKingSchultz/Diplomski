@@ -6,9 +6,11 @@ from data_parser import ParseAndCreateTable
 import configparser
 
 class FlightDataSender:
-    def __init__(self, properties_file):
+    def __init__(self, properties_file, chunk_size=None, data_file_path=None):
         self.properties_file = properties_file
-        self.host, self.port, self.data_file_path, self.chunk_size = self.read_properties()
+        self.host, self.port, cfg_data_file, cfg_chunk_size = self.read_properties()
+        self.chunk_size = chunk_size if chunk_size is not None else cfg_chunk_size
+        self.data_file_path = data_file_path if data_file_path is not None else cfg_data_file
         self.client = fl.FlightClient(f"grpc://{self.host}:{self.port}")
         self.table_initializer = ParseAndCreateTable(self.chunk_size, self.data_file_path)
 
@@ -29,8 +31,6 @@ class FlightDataSender:
                 "numberOfTableRowsInBatch": [len(self.table_initializer.data_table_chunked[0])],  # Number of elements in the first chunk
                 "numberOfBatches": [len(self.table_initializer.data_table_chunked)]  # Number of entries in data_table_chunked
             }
-            print("numberOfTableRowsInBatch : ", [len(self.table_initializer.data_table_chunked[0])])
-            print("numberOfBatches : ", [len(self.table_initializer.data_table_chunked)])
             # Convert message to Arrow Table
             message_df = pd.DataFrame(message)
             message_table = pa.Table.from_pandas(message_df)
@@ -50,7 +50,6 @@ class FlightDataSender:
             # Close the writer
             writer.close()
 
-            print("Message sent to server successfully.")
 
         except Exception as e:
             print("Error sending message to server:", e)
@@ -85,10 +84,11 @@ class FlightDataSender:
                 message_dict = message_df.to_dict(orient='records')[0]
                 if message_dict.get('status') == 'Success':
                     end_time = time.time()
-                    elapsed_time = (end_time - start_time) * 1000  # Convert to milliseconds
-                    print("Server has finished processing the batches.")
-                    print('Elapsed time:', f'{elapsed_time:.2f}', 'milliseconds')
-                print(message_dict)
+                    elapsed_time = (end_time - start_time) * 1000
+                    return elapsed_time
+                else:
+                    print("Error: server returned non-success status:", message_dict)
+                    return None
             except Exception as e:
                 print("Error during data exchange:", e)
 
@@ -99,9 +99,9 @@ class FlightDataSender:
             # Close the Flight client connection
             self.client.close()
 
-# Example usage:
-properties_file = '../config.properties'
-sender = FlightDataSender(properties_file)
-sender.table_initializer.initialize_arrow_table()
-sender.startCommunication()
-sender.send_batches()
+if __name__ == '__main__':
+    properties_file = '../config.properties'
+    sender = FlightDataSender(properties_file)
+    sender.table_initializer.initialize_arrow_table()
+    sender.startCommunication()
+    sender.send_batches()
