@@ -20,7 +20,7 @@ from data_parser import ParseAndCreateTable
 
 # --- Experiment configuration ---
 
-N_RUNS = 5      # measured runs per configuration
+N_RUNS = 10     # measured runs per configuration
 N_WARMUP = 1    # warm-up runs discarded before measuring
 
 # Experiment 1: how protocols scale with data volume (fixed chunk size)
@@ -144,15 +144,68 @@ def benchmark(protocol, filename, num_rows, chunk_size):
     print(f"  avg={avg:.0f}ms")
     return records
 
+def trimmed_mean(values):
+    if len(values) <= 2:
+        return sum(values) / len(values)
+    return sum(sorted(values)[1:-1]) / (len(values) - 2)
+
 def write_results(all_records, out_file):
     RESULTS_DIR.mkdir(exist_ok=True)
+
+    # Raw results — every individual run
     fieldnames = ['protocol', 'dataset', 'num_rows', 'chunk_size', 'num_batches',
                   'file_size_mb', 'run', 'elapsed_ms', 'throughput_mbs']
     with open(out_file, 'w', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(all_records)
-    print(f"\nResults saved to: {out_file}")
+
+    # Summary — one row per configuration with aggregated stats
+    summary_file = out_file.parent / out_file.name.replace('benchmark_', 'summary_')
+    groups = {}
+    for r in all_records:
+        key = (r['protocol'], r['dataset'], r['num_rows'], r['chunk_size'])
+        groups.setdefault(key, []).append(r['elapsed_ms'])
+
+    summary_fieldnames = ['protocol', 'dataset', 'num_rows', 'chunk_size', 'num_batches',
+                          'file_size_mb', 'n_runs', 'mean_ms', 'median_ms',
+                          'trimmed_mean_ms', 'std_ms', 'cv_pct', 'throughput_trimmed_mbs']
+    summary_rows = []
+    for (protocol, dataset, num_rows, chunk_size), times in groups.items():
+        ref = next(r for r in all_records
+                   if r['protocol'] == protocol and r['dataset'] == dataset
+                   and r['num_rows'] == num_rows and r['chunk_size'] == chunk_size)
+        n = len(times)
+        mean = sum(times) / n
+        median = sorted(times)[n // 2] if n % 2 else (sorted(times)[n//2-1] + sorted(times)[n//2]) / 2
+        tm = trimmed_mean(times)
+        variance = sum((t - mean) ** 2 for t in times) / (n - 1)
+        std = variance ** 0.5
+        cv = (std / mean * 100) if mean > 0 else 0
+        throughput_tm = (ref['file_size_mb'] / (tm / 1000)) if tm > 0 else 0
+        summary_rows.append({
+            'protocol':             protocol,
+            'dataset':              dataset,
+            'num_rows':             num_rows,
+            'chunk_size':           chunk_size,
+            'num_batches':          ref['num_batches'],
+            'file_size_mb':         ref['file_size_mb'],
+            'n_runs':               n,
+            'mean_ms':              round(mean, 2),
+            'median_ms':            round(median, 2),
+            'trimmed_mean_ms':      round(tm, 2),
+            'std_ms':               round(std, 2),
+            'cv_pct':               round(cv, 1),
+            'throughput_trimmed_mbs': round(throughput_tm, 4),
+        })
+
+    with open(summary_file, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=summary_fieldnames)
+        writer.writeheader()
+        writer.writerows(summary_rows)
+
+    print(f"\nRaw results:     {out_file}")
+    print(f"Summary results: {summary_file}")
 
 def restart_server(proc):
     proc.kill()
